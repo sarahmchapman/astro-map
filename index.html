@@ -760,9 +760,6 @@ var MONTH_NAMES = ['January','February','March','April','May','June','July','Aug
 function pad(n){return String(n).padStart(2,'0');}
 
 function normStr(s){return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');}
-// ── DOM INIT (runs after DOM is ready) ────────────────────────────────────
-document.addEventListener('DOMContentLoaded', function() {
-
 // ── CITY SEARCH: local DB + live Nominatim geocoding ──────────────────────
 function _localSearch(q){
   var n=normStr(q.trim()); if(n.length<1)return[];
@@ -2443,8 +2440,6 @@ function resetToForm(){
 
 // Redraw on resize
 window.addEventListener('resize',function(){if(activeChart)drawMap();});
-
-});
 </script>
 </body>
 </html>
