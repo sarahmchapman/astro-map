@@ -2063,26 +2063,15 @@ function _handleMapClick(lat, lng) {
   openCard(initLabel, bestP, bestLT, lat, lng);
 
   // Photon reverse: no filter, pick best settlement from results
-  fetch('https://photon.komoot.io/reverse?lon='+lng.toFixed(5)+'&lat='+lat.toFixed(5)+'&limit=5&lang=en')
+  fetch('https://nominatim.openstreetmap.org/reverse?lat='+lat.toFixed(5)+'&lon='+lng.toFixed(5)+'&format=json&zoom=10&addressdetails=1&accept-language=en')
     .then(function(r){return r.json();})
     .then(function(data){
-      var features=data.features||[];
-      // Rank settlements: most specific first
-      var RANK={'city':1,'town':2,'village':3,'hamlet':4,'suburb':5,
-        'municipality':5,'borough':6,'district':7,'quarter':8,'neighbourhood':9};
-      var best=null, bestScore=9999;
-      features.forEach(function(f){
-        var p=f.properties||{};
-        if(!p.name)return;
-        var score=(p.osm_key==='place'?0:100)+(RANK[p.osm_value]||50);
-        if(score<bestScore){bestScore=score;best=f;}
-      });
-      if(!best&&features.length)best=features[0];
-      if(!best)return;
-      var p=best.properties||{};
-      var name=p.name||'';
-      var region=p.state||p.county||'';
-      var country=p.country||'';
+      if(!data||!data.address)return;
+      var a=data.address;
+      // zoom=10 returns the town/city level — pick most specific settlement name
+      var name=a.city||a.town||a.village||a.hamlet||a.suburb||a.municipality||a.county||'';
+      var region=a.state||a.region||a.county||'';
+      var country=a.country||'';
       if(!name)return;
       var label=name;
       if(region&&region!==name)label+=', '+region;
