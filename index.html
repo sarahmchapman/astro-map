@@ -137,9 +137,7 @@ select{cursor:pointer;background-image:url("data:image/svg+xml,%3Csvg xmlns='htt
 .rc-hdr{display:flex;align-items:flex-start;justify-content:space-between;padding:1rem 1.2rem .4rem;gap:.5rem}
 .rc-close{font-size:8px;font-weight:500;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-3);cursor:pointer;background:transparent;border:.5px solid var(--paper-3);padding:.2rem .5rem;border-radius:20px}
 .rc-close:hover{color:var(--ink)}
-.rc-city{font-family:var(--serif);font-weight:300;line-height:1.2;color:var(--ink)}
-.rc-location{display:block;font-size:1.45rem;font-weight:300;color:var(--ink);letter-spacing:-.01em}
-.rc-quality-sub{display:block;font-family:var(--serif);font-size:.88rem;font-style:italic;color:var(--gold);margin-top:.15rem}
+.rc-city{font-family:var(--serif);font-size:1.35rem;font-weight:300;line-height:1.15;color:var(--ink)}
 .rc-city em{font-style:italic;color:var(--gold)}
 .rc-body{padding:0 1.2rem 1.2rem}
 .rc-planet-row{display:flex;align-items:center;gap:.5rem;margin:.4rem 0 .8rem}
@@ -805,20 +803,19 @@ function _localSearch(q){
   }
 
   function nominatimSearch(q){
-    // Photon by Komoot — HTTPS, CORS-safe, full OSM data
-    // No osm_tag filter (breaks Photon). Filter client-side by osm_key=place
+    // Photon by Komoot — HTTPS, CORS-safe, no API key, full OSM (cities/towns/villages/hamlets)
     fetch('https://photon.komoot.io/api/?q='+encodeURIComponent(q)+'&limit=20&lang=en')
       .then(function(r){return r.json();})
       .then(function(data){
         if(inp.value.trim()!==q)return;
-        var PLACE=['city','town','village','hamlet','suburb','quarter',
+        var PLACES=['city','town','village','hamlet','suburb','quarter',
           'neighbourhood','locality','municipality','borough','district','island'];
         var results=[];
         (data.features||[]).forEach(function(f){
           var p=f.properties||{};
           if(!p.name||!p.country)return;
-          // Keep only settlement-type places
-          if(p.osm_key!=='place'&&PLACE.indexOf(p.osm_value)<0)return;
+          // Only keep settlement-type places — filter client-side
+          if(p.osm_key!=='place' && PLACES.indexOf(p.osm_value)<0)return;
           var region=p.state||p.county||p.district||'';
           var dup=results.some(function(r){
             return normStr(r.n)===normStr(p.name)&&normStr(r.c)===normStr(p.country);
@@ -2050,27 +2047,28 @@ function _handleMapClick(lat, lng) {
     // All lines toggled off — just pick Sun MC
     bestP = 'Sun'; bestLT = 'MC';
   }
-  // Find nearest city from MAP_CITIES as instant fallback (never show coordinates)
-  var nearCity='', nearRegion='', nearCountry='', bestCD=Infinity;
+  // Find nearest MAP_CITIES entry as instant placeholder (always a real place name)
+  var nearCity='', bestCD=Infinity;
   MAP_CITIES.forEach(function(city){
     var dlat=city.lat-lat, dlng=city.lng-lng;
     if(dlng>180)dlng-=360; if(dlng<-180)dlng+=360;
     var d=Math.sqrt(dlat*dlat+dlng*dlng);
-    if(d<bestCD){bestCD=d; nearCity=city.n; nearCountry=city.c||'';}
+    if(d<bestCD){bestCD=d; nearCity=city.n+(city.c?' — '+city.c:'');}
   });
-  // Open card with nearest known city immediately — always human-readable
-  var initLabel=nearCity+(nearCountry?' — '+nearCountry:'');
-  openCard(initLabel, bestP, bestLT, lat, lng);
+  openCard(nearCity||'This location', bestP, bestLT, lat, lng);
 
-  // Photon reverse: no filter, pick best settlement from results
-  fetch('https://nominatim.openstreetmap.org/reverse?lat='+lat.toFixed(5)+'&lon='+lng.toFixed(5)+'&format=json&zoom=10&addressdetails=1&accept-language=en')
+  // Nominatim reverse at zoom=10 → returns city/town level only
+  // zoom=10 deliberately excludes streets, buildings, restaurants, POIs
+  fetch('https://nominatim.openstreetmap.org/reverse'
+    +'?lat='+lat.toFixed(5)+'&lon='+lng.toFixed(5)
+    +'&format=json&zoom=10&addressdetails=1&accept-language=en')
     .then(function(r){return r.json();})
     .then(function(data){
       if(!data||!data.address)return;
       var a=data.address;
-      // zoom=10 returns the town/city level — pick most specific settlement name
-      var name=a.city||a.town||a.village||a.hamlet||a.suburb||a.municipality||a.county||'';
-      var region=a.state||a.region||a.county||'';
+      // At zoom=10 this is always a city/town/village — never a street or POI
+      var name=a.city||a.town||a.village||a.hamlet||a.municipality||a.county||'';
+      var region=a.state||a.county||'';
       var country=a.country||'';
       if(!name)return;
       var label=name;
@@ -2078,9 +2076,8 @@ function _handleMapClick(lat, lng) {
       if(country)label+=' — '+country;
       var el=document.getElementById('rcCity');
       if(el&&document.getElementById('readingCard').classList.contains('open')){
-        var qualityEl=el.querySelector('em');
-        var qualityHtml=qualityEl?'<br><em>'+qualityEl.textContent+'</em>':'';
-        el.innerHTML=label+qualityHtml;
+        var parts=el.innerHTML.split('<br>');
+        el.innerHTML=label+(parts[1]?'<br>'+parts[1]:'');
       }
     })
     .catch(function(){});
@@ -2395,8 +2392,8 @@ function openCard(cityName, planet, ltype, _lat, _lng) {
 
   document.getElementById('rcAccent').style.background = col;
   document.getElementById('rcCity').innerHTML =
-    '<span class="rc-location">'+(cityName||'This location')+'</span>'
-    +'<span class="rc-quality-sub">'+quality+'</span>';
+    (cityName||'This location')
+    +'<br><em>'+quality+'</em>';
 
   document.getElementById('rcBody').innerHTML =
     // Planet header
