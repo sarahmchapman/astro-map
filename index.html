@@ -137,7 +137,9 @@ select{cursor:pointer;background-image:url("data:image/svg+xml,%3Csvg xmlns='htt
 .rc-hdr{display:flex;align-items:flex-start;justify-content:space-between;padding:1rem 1.2rem .4rem;gap:.5rem}
 .rc-close{font-size:8px;font-weight:500;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-3);cursor:pointer;background:transparent;border:.5px solid var(--paper-3);padding:.2rem .5rem;border-radius:20px}
 .rc-close:hover{color:var(--ink)}
-.rc-city{font-family:var(--serif);font-size:1.35rem;font-weight:300;line-height:1.15;color:var(--ink)}
+.rc-city{font-family:var(--serif);font-weight:300;line-height:1.2;color:var(--ink)}
+.rc-location{display:block;font-size:1.45rem;font-weight:300;color:var(--ink);letter-spacing:-.01em}
+.rc-quality-sub{display:block;font-family:var(--serif);font-size:.88rem;font-style:italic;color:var(--gold);margin-top:.15rem}
 .rc-city em{font-style:italic;color:var(--gold)}
 .rc-body{padding:0 1.2rem 1.2rem}
 .rc-planet-row{display:flex;align-items:center;gap:.5rem;margin:.4rem 0 .8rem}
@@ -775,22 +777,19 @@ function _localSearch(q){
 (function(){
   var inp=document.getElementById('cityInput'),drop=document.getElementById('citySuggestions');
   if(!inp||!drop)return;
-  var hi=-1,_deb=null;
+  var hi=-1, _debounce=null, _lastQ='', _apiResults=[];
 
   function its(){return drop.getElementsByClassName('city-item');}
   function close(){drop.classList.remove('show');hi=-1;}
-  function hl(i){
-    var x=its();[].forEach.call(x,function(el){el.classList.remove('hi');});
-    hi=Math.max(-1,Math.min(i,x.length-1));
-    if(hi>=0)x[hi].classList.add('hi');
-  }
+  function hl(i){var x=its();[].forEach.call(x,function(el){el.classList.remove('hi');});hi=Math.max(-1,Math.min(i,x.length-1));if(hi>=0)x[hi].classList.add('hi');}
+
   function pick(city){
     inp.value=city.n+(city.r&&city.r!==city.n&&city.r!==city.c?', '+city.r:'')+', '+city.c;
-    selectedGeo={lat:city.lat,lng:city.lng,city:city.n,country:city.c,
-      display:inp.value,tz:tzFromLng(city.lng)};
+    selectedGeo={lat:city.lat,lng:city.lng,city:city.n,country:city.c,display:inp.value,tz:tzFromLng(city.lng)};
     close();
     document.getElementById('geoErr').classList.remove('on');
   }
+
   function renderHits(hits){
     drop.innerHTML='';
     if(!hits.length){close();return;}
@@ -802,43 +801,33 @@ function _localSearch(q){
       div.addEventListener('mousedown',function(ev){ev.preventDefault();pick(city);});
       drop.appendChild(div);
     });
-    drop.classList.add('show');hi=-1;
+    drop.classList.add('show'); hi=-1;
   }
 
-  function photonSearch(q){
-    // Photon by Komoot: browser-safe, CORS-enabled, full OSM data
-    // Returns cities, towns, villages, hamlets — everything
-    var url='https://photon.komoot.io/api/?q='+encodeURIComponent(q)
-      +'&limit=15&lang=en';
-    fetch(url)
+  function nominatimSearch(q){
+    // Photon by Komoot — HTTPS, CORS-safe, full OSM data
+    // No osm_tag filter (breaks Photon). Filter client-side by osm_key=place
+    fetch('https://photon.komoot.io/api/?q='+encodeURIComponent(q)+'&limit=20&lang=en')
       .then(function(r){return r.json();})
       .then(function(data){
         if(inp.value.trim()!==q)return;
+        var PLACE=['city','town','village','hamlet','suburb','quarter',
+          'neighbourhood','locality','municipality','borough','district','island'];
         var results=[];
         (data.features||[]).forEach(function(f){
           var p=f.properties||{};
-          // Only settlement-type results
-          var ok=p.type==='city'||p.type==='town'||p.type==='village'
-            ||p.type==='hamlet'||p.type==='suburb'||p.type==='district'
-            ||p.type==='borough'||p.type==='municipality'||p.type==='locality'
-            ||p.type==='neighbourhood'||p.osm_value==='city'
-            ||p.osm_value==='town'||p.osm_value==='village'
-            ||p.osm_value==='hamlet'||p.osm_key==='place';
-          if(!ok)return;
-          var name=p.name||p.city||p.town||p.village||'';
-          var country=p.country||'';
+          if(!p.name||!p.country)return;
+          // Keep only settlement-type places
+          if(p.osm_key!=='place'&&PLACE.indexOf(p.osm_value)<0)return;
           var region=p.state||p.county||p.district||'';
-          if(!name||!country)return;
-          var lat=f.geometry&&f.geometry.coordinates&&f.geometry.coordinates[1];
-          var lng=f.geometry&&f.geometry.coordinates&&f.geometry.coordinates[0];
-          if(!lat||!lng)return;
           var dup=results.some(function(r){
-            return normStr(r.n)===normStr(name)&&normStr(r.c)===normStr(country);
+            return normStr(r.n)===normStr(p.name)&&normStr(r.c)===normStr(p.country);
           });
-          if(!dup)results.push({n:name,r:region,c:country,
-            lat:parseFloat(lat),lng:parseFloat(lng)});
+          if(!dup)results.push({
+            n:p.name, r:region, c:p.country,
+            lat:f.geometry.coordinates[1], lng:f.geometry.coordinates[0]
+          });
         });
-        // Merge with local results
         var local=_localSearch(q);
         var merged=local.slice();
         results.forEach(function(ar){
@@ -872,9 +861,9 @@ function _localSearch(q){
     // Show local results instantly
     var local=_localSearch(q);
     renderHits(local);
-    // Photon search after short debounce
-    clearTimeout(_deb);
-    _deb=setTimeout(function(){photonSearch(q);},350);
+    // Then fetch from Nominatim after short debounce
+    clearTimeout(_debounce);
+    _debounce=setTimeout(function(){nominatimSearch(q);},400);
   });
 })();
 
@@ -1869,18 +1858,7 @@ function _renderOverlay() {
   });
   ctx.globalAlpha = 1;
 
-  // City markers — dots only (tile layer renders the labels natively)
-  // Only show when zoomed in enough to be meaningful
-  if (m.zoomF >= 4) {
-    MAP_CITIES.forEach(function(city) {
-      var cp = _ll2px(city.lat, city.lng);
-      if (cp.x < -5 || cp.x > W + 5 || cp.y < -5 || cp.y > H + 5) return;
-      var r = Math.max(2, Math.min(3.5, m.zoomF * 0.5));
-      ctx.beginPath(); ctx.arc(cp.x, cp.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(184,149,90,0.55)'; ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 1; ctx.stroke();
-    });
-  }
+
 
   // Birth marker
   if (activeChart.geo && activeChart.geo.lat != null) {
@@ -2072,35 +2050,48 @@ function _handleMapClick(lat, lng) {
     // All lines toggled off — just pick Sun MC
     bestP = 'Sun'; bestLT = 'MC';
   }
-  // Build coordinate fallback label
-  var coordLabel = Math.abs(lat).toFixed(2)+(lat>=0?'°N':'°S')
-    +' '+Math.abs(lng).toFixed(2)+(lng>=0?'°E':'°W');
+  // Find nearest city from MAP_CITIES as instant fallback (never show coordinates)
+  var nearCity='', nearRegion='', nearCountry='', bestCD=Infinity;
+  MAP_CITIES.forEach(function(city){
+    var dlat=city.lat-lat, dlng=city.lng-lng;
+    if(dlng>180)dlng-=360; if(dlng<-180)dlng+=360;
+    var d=Math.sqrt(dlat*dlat+dlng*dlng);
+    if(d<bestCD){bestCD=d; nearCity=city.n; nearCountry=city.c||'';}
+  });
+  // Open card with nearest known city immediately — always human-readable
+  var initLabel=nearCity+(nearCountry?' — '+nearCountry:'');
+  openCard(initLabel, bestP, bestLT, lat, lng);
 
-  // Open card immediately with coordinates, then upgrade to real place name
-  openCard(coordLabel, bestP, bestLT, lat, lng);
-
-  // Reverse geocode against Nominatim — returns the exact place name the
-  // tile layer uses, matching what the user sees on the map
-  var revUrl='https://nominatim.openstreetmap.org/reverse'
-    +'?lat='+lat.toFixed(6)+'&lon='+lng.toFixed(6)
-    +'&format=json&addressdetails=1&zoom=10&accept-language=en';
-  fetch(revUrl)
+  // Photon reverse: no filter, pick best settlement from results
+  fetch('https://photon.komoot.io/reverse?lon='+lng.toFixed(5)+'&lat='+lat.toFixed(5)+'&limit=5&lang=en')
     .then(function(r){return r.json();})
-    .then(function(d){
-      if(!d||!d.address)return;
-      var addr=d.address;
-      // Prefer village/town/city in that order — most specific first
-      var place=addr.village||addr.town||addr.city_district
-        ||addr.suburb||addr.city||addr.municipality
-        ||addr.county||addr.state||'';
-      var country=addr.country_code?addr.country_code.toUpperCase():'';
-      if(!place)return;
-      var label=place+(country?' ('+country+')':'');
-      // Update the already-open card's city line
+    .then(function(data){
+      var features=data.features||[];
+      // Rank settlements: most specific first
+      var RANK={'city':1,'town':2,'village':3,'hamlet':4,'suburb':5,
+        'municipality':5,'borough':6,'district':7,'quarter':8,'neighbourhood':9};
+      var best=null, bestScore=9999;
+      features.forEach(function(f){
+        var p=f.properties||{};
+        if(!p.name)return;
+        var score=(p.osm_key==='place'?0:100)+(RANK[p.osm_value]||50);
+        if(score<bestScore){bestScore=score;best=f;}
+      });
+      if(!best&&features.length)best=features[0];
+      if(!best)return;
+      var p=best.properties||{};
+      var name=p.name||'';
+      var region=p.state||p.county||'';
+      var country=p.country||'';
+      if(!name)return;
+      var label=name;
+      if(region&&region!==name)label+=', '+region;
+      if(country)label+=' — '+country;
       var el=document.getElementById('rcCity');
       if(el&&document.getElementById('readingCard').classList.contains('open')){
-        var parts=el.innerHTML.split('<br>');
-        el.innerHTML=label+(parts[1]?'<br>'+parts[1]:'');
+        var qualityEl=el.querySelector('em');
+        var qualityHtml=qualityEl?'<br><em>'+qualityEl.textContent+'</em>':'';
+        el.innerHTML=label+qualityHtml;
       }
     })
     .catch(function(){});
@@ -2415,8 +2406,8 @@ function openCard(cityName, planet, ltype, _lat, _lng) {
 
   document.getElementById('rcAccent').style.background = col;
   document.getElementById('rcCity').innerHTML =
-    (cityName||'This location')
-    +'<br><em>'+quality+'</em>';
+    '<span class="rc-location">'+(cityName||'This location')+'</span>'
+    +'<span class="rc-quality-sub">'+quality+'</span>';
 
   document.getElementById('rcBody').innerHTML =
     // Planet header
