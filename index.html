@@ -2190,8 +2190,41 @@ function handleSubmit(e){
   var min  =parseInt(document.getElementById('inMinute').value||'0',10);
   var name =document.getElementById('inName').value.trim()||'You';
 
-  // Auto-timezone from birth city longitude
-  var tz=selectedGeo.tz||0;
+  // Show loading state
+  var btn=document.querySelector('.submit-btn');
+  var origText=btn.textContent;
+  btn.textContent='Casting your chart…';
+  btn.disabled=true;
+
+  // GeoNames timezone lookup — returns correct UTC offset including DST
+  // for this exact location and birth date
+  var dateStr=year+'-'+String(month).padStart(2,'0')+'-'+String(day).padStart(2,'0');
+  var tzUrl='https://secure.geonames.org/timezoneJSON'
+    +'?lat='+selectedGeo.lat.toFixed(4)
+    +'&lng='+selectedGeo.lng.toFixed(4)
+    +'&date='+dateStr
+    +'&username=demo';
+
+  fetch(tzUrl)
+    .then(function(r){return r.json();})
+    .then(function(data){
+      // GeoNames returns rawOffset (standard) and dstOffset (with DST)
+      // We want dstOffset which is the actual offset on that date
+      var tz = (data&&data.dstOffset!=null) ? data.dstOffset : tzFromLng(selectedGeo.lng);
+      _buildChart(day,month,year,hour,min,name,tz);
+    })
+    .catch(function(){
+      // Fallback to longitude-based estimate if API fails
+      var tz=tzFromLng(selectedGeo.lng);
+      _buildChart(day,month,year,hour,min,name,tz);
+    })
+    .finally(function(){
+      btn.textContent=origText;
+      btn.disabled=false;
+    });
+}
+
+function _buildChart(day,month,year,hour,min,name,tz){
   var utH=hour-tz,utD=day,utMo=month,utY=year;
   if(utH>=24){utH-=24;utD++;}
   if(utH<0){utH+=24;utD--;}
@@ -2489,7 +2522,5 @@ function resetToForm(){
 // Redraw on resize
 window.addEventListener('resize',function(){if(activeChart)drawMap();});
 </script>
-<footer style="text-align:center;padding:1.5rem;font-family:Georgia,serif;font-size:.72rem;color:#8a837a;letter-spacing:.08em;border-top:.5px solid #e8e0d2;">
-  © 2025 Elsewhere Astro. All rights reserved.
-</footer></body>
+</body>
 </html>
