@@ -2208,9 +2208,12 @@ function handleSubmit(e){
   fetch(tzUrl)
     .then(function(r){return r.json();})
     .then(function(data){
-      // GeoNames returns rawOffset (standard) and dstOffset (with DST)
-      // We want dstOffset which is the actual offset on that date
-      var tz = (data&&data.dstOffset!=null) ? data.dstOffset : tzFromLng(selectedGeo.lng);
+      // GeoNames returns rawOffset (standard time) and dstOffset (with DST)
+      // Use rawOffset as base — dstOffset can be wrong for historical dates
+      var raw = (data&&data.rawOffset!=null) ? data.rawOffset : tzFromLng(selectedGeo.lng);
+      var dst = (data&&data.dstOffset!=null) ? data.dstOffset : raw;
+      var summerMonth = (month >= 4 && month <= 10);
+      var tz = (summerMonth && dst !== raw) ? dst : raw;
       _buildChart(day,month,year,hour,min,name,tz);
     })
     .catch(function(){
